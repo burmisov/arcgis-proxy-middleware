@@ -17,9 +17,12 @@
   },
   "homepage": "https://github.com/burmisov/arcgis-proxy-middleware#readme",
   "dependencies": {
+    "form-data": "^1.0.0-rc4",
+    "isomorphic-fetch": "^2.2.1",
     "request": "^2.74.0"
   },
   "devDependencies": {
+    "body-parser": "^1.15.2",
     "express": "^4.14.0"
   }
 }

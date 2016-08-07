@@ -1,5 +1,9 @@
-const debug = require('debug')('arcgis-proxy-middleware');
+const debug = require('debug')('arcgis-proxy-middleware:proxy');
+
 const request = require('request');
+const qs = require('querystring');
+
+const TokenManager = require('./TokenManager');
 
 /**
   Creates Arcgis server authenticating middleware
@@ -22,48 +26,40 @@ module.exports = function createArcgisProxy(options) {
     throw new Error("No option can be blank for createArcgisProxy.");
   }
 
-  const genTokenUrl = agsSrvUrl + tokenPath;
-  const params = {
-    f: 'json',
+  const tokenManager = new TokenManager({
+    genTokenUrl: agsSrvUrl + genTokenPath,
     username,
     password,
-    client: 'requestip',
-    expiration: 5,
-  };
+  });
+
+  debug('creating middleware');
 
   return function(req, res, next) {
-    let queryPref = '?';
-    const path = req.originalUrl;
-    request.post({
-      url: agsSrvUrl,
-      form: params
-    }, (error, response, body) => {
-      if (error || response.statusCode !== 200) {
-        debug('error getting token:', error);
-        return res.sendStatus(500);
+    debug('requested %s %s', req.method, req.originalUrl);
+    tokenManager.getToken().then(token => {
+      debug('got token');
+      if (req.method === 'GET') {
+        const querySeparator = req.originalUrl.indexOf('?') > -1 ? '&' : '?';
+        const pathWithToken = agsSrvUrl + req.originalUrl + querySeparator + 'token=' + token;
+        debug('performing GET %s', pathWithToken);
+        request({
+          method: 'GET',
+          url: pathWithToken,
+          followRedirect: false,
+          headers: { Referer: 'http://arcgis.proxy' }
+        }).pipe(res);
       } else {
-        const tokenInfo = JSON.parse(body);
-        const token = tokenInfo.token;
-        if (path.indexOf('?') + 1) {
-          queryPref = '&';
-        }
-        if (!req.method || req.method === 'GET') {
-          request
-            .get(agsSrvUrl + path + queryPref + 'token=' + token)
-            .pipe(res)
-          ;
-        } else {
-          const form = {
-            ...req.body,
-            token,
-          }
-          request
-            .post(host + path)
-            .form(req.body)
-            .pipe(res)
-          ;
-        }
+        debug('%s %s', req.method, req.originalUrl);
+        const bodyWithToken = Object.assign({}, req.body, { token });
+        request({
+          method: req.method,
+          url: agsSrvUrl + req.originalUrl,
+          form: bodyWithToken,
+        }).pipe(res);
       }
-    }
+    }).catch(err => {
+      debug(err.message);
+      return res.status(500).send('Was unable to acquire token');
+    });
   }
 }
