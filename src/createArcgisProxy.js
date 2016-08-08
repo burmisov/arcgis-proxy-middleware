@@ -52,6 +52,10 @@ module.exports = function createArcgisProxy(options) {
       proxyReq.headers['Referer'] = 'http://arcgis.proxy';
       return proxyReq;
     },
+    filter: (req, res) => {
+      const result = /^\/arcgis\//.test(req.path);
+      return result;
+    },
   });
 
   return middleware;
