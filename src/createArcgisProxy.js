@@ -1,7 +1,7 @@
 const debug = require('debug')('arcgis-proxy-middleware:proxy');
 
 const TokenManager = require('./TokenManager');
-const proxy = require('express-http-proxy');
+const httpProxy = require('http-proxy');
 const url = require('url');
 const querystring = require('querystring');
 
@@ -34,29 +34,30 @@ module.exports = function createArcgisProxy(options) {
 
   debug('creating middleware');
 
-  const middleware = proxy(agsSrvUrl, {
-    forwardPathAsync: (req, res) => {
-      return Promise.resolve().then(() => {
-        return tokenManager.getToken();
-      }).then(token => {
-        debug('original request, method=%s, url=%s', req.method, req.url);
-        const urlObject = url.parse(req.url, true);
-        const newPath =
-          urlObject.pathname + '?' +
-          querystring.stringify(Object.assign(urlObject.query, { token }))
-        ;
-        return newPath;
-      });
-    },
-    decorateRequest: (proxyReq, originalReq) => {
-      proxyReq.headers['Referer'] = 'http://arcgis.proxy';
-      return proxyReq;
-    },
-    filter: (req, res) => {
-      const result = /^\/arcgis\//.test(req.path);
-      return result;
-    },
+  const proxy = httpProxy.createServer({
+    target: agsSrvUrl,
+    secure: false,
   });
+
+  const middleware = (req, res, next) => {
+    if (!/^\/arcgis\//.test(req.path)) {
+      return next();
+    }
+    debug('original request, method=%s, url=%s', req.method, req.url);
+    return Promise.resolve().then(() => {
+      return tokenManager.getToken();
+    }).then(token => {
+      const originalUrlObject = url.parse(req.url, true);
+      const newUrlObject = {
+        query: Object.assign(originalUrlObject.query, { token }),
+        pathname: originalUrlObject.pathname,
+      };
+      const newUrl = url.format(newUrlObject);
+      req.url = newUrl;
+      req.headers['Referer'] = 'http://arcgis.proxy';
+      proxy.web(req, res);
+    });
+  };
 
   return middleware;
 };
